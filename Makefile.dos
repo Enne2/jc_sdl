@@ -1,0 +1,18 @@
+CC = gcc
+CFLAGS = -Wall -O2 -I$(DJDIR)/include/SDL
+LDFLAGS = -L$(DJDIR)/lib
+LDLIBS = -lSDL -lm
+
+EXE = jc_dos.exe
+OBJ = jc_reborn.o utils.o uncompress.o resource.o dump.o story.o \
+      walk.o calcpath.o ads.o ttm.o island.o bench.o graphics.o \
+      sound.o events.o config.o
+
+all: $(EXE)
+
+$(EXE): $(OBJ)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+clean:
+	del *.o
+	del $(EXE)

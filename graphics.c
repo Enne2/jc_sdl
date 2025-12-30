@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <SDL2/SDL.h>
+#include <SDL/SDL.h>
 
 #include "mytypes.h"
 #include "utils.h"
@@ -33,7 +33,7 @@
 #include "events.h"
 
 
-static SDL_Window *sdl_window;
+static SDL_Surface *sdl_screen;
 
 static uint8 ttmPalette[16][4];
 
@@ -114,17 +114,16 @@ void graphicsInit()
 {
     SDL_Init(SDL_INIT_VIDEO);
 
-    sdl_window = SDL_CreateWindow(
-        "Johnny Reborn ...?",
-        SDL_WINDOWPOS_UNDEFINED,
-        SDL_WINDOWPOS_UNDEFINED,
-        SCREEN_WIDTH,
-        SCREEN_HEIGHT,
-        (grWindowed ? 0 : SDL_WINDOW_FULLSCREEN)
-    );
+    Uint32 flags = SDL_SWSURFACE;
+    if (!grWindowed)
+        flags |= SDL_FULLSCREEN;
 
-    if (sdl_window == NULL)
+    sdl_screen = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT, 32, flags);
+
+    if (sdl_screen == NULL)
         fatalError("Could not create window: %s", SDL_GetError());
+
+    SDL_WM_SetCaption("Johnny Reborn ...?", NULL);
 
     grScreenOrigin.x = (SCREEN_WIDTH - 640) / 2;
     grScreenOrigin.y = (SCREEN_HEIGHT - 480) / 2;
@@ -132,7 +131,7 @@ void graphicsInit()
     if (!grWindowed)
         SDL_ShowCursor(SDL_DISABLE);
 
-    SDL_UpdateWindowSurface(sdl_window);
+    SDL_Flip(sdl_screen);
 
     grLoadPalette(palResources[0]);  // TODO ?
 
@@ -144,14 +143,13 @@ void graphicsInit()
 
 void graphicsEnd()
 {
-    SDL_DestroyWindow(sdl_window);
     SDL_Quit();
 }
 
 
 void grRefreshDisplay()
 {
-    SDL_UpdateWindowSurface(sdl_window);
+    SDL_Flip(sdl_screen);
 }
 
 
@@ -159,16 +157,17 @@ void grToggleFullScreen()
 {
     grWindowed = !grWindowed;
 
-    if (grWindowed) {
-        SDL_SetWindowFullscreen(sdl_window, 0);
+    Uint32 flags = SDL_SWSURFACE;
+    if (!grWindowed) {
+        flags |= SDL_FULLSCREEN;
+        SDL_ShowCursor(SDL_DISABLE);
+    } else {
         SDL_ShowCursor(SDL_ENABLE);
     }
-    else {
-        SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_FULLSCREEN);
-        SDL_ShowCursor(SDL_DISABLE);
-    }
 
-    SDL_UpdateWindowSurface(sdl_window);
+    sdl_screen = SDL_SetVideoMode(SCREEN_WIDTH, SCREEN_HEIGHT, 32, flags);
+
+    SDL_Flip(sdl_screen);
 }
 
 
@@ -180,14 +179,14 @@ void grUpdateDisplay(struct TTtmThread *ttmBackgroundThread,
     if (grBackgroundSfc != NULL)
         SDL_BlitSurface(grBackgroundSfc,
                         NULL,
-                        SDL_GetWindowSurface(sdl_window),
+                        sdl_screen,
                         &grScreenOrigin);
 
     // If not NULL, blit the optional layer of saved zones
     if (grSavedZonesLayer != NULL)
         SDL_BlitSurface(grSavedZonesLayer,
                         NULL,
-                        SDL_GetWindowSurface(sdl_window),
+                        sdl_screen,
                         &grScreenOrigin);
 
 
@@ -196,7 +195,7 @@ void grUpdateDisplay(struct TTtmThread *ttmBackgroundThread,
         if (ttmThreads[i].isRunning)
             SDL_BlitSurface(ttmThreads[i].ttmLayer,
                             NULL,
-                            SDL_GetWindowSurface(sdl_window),
+                            sdl_screen,
                             &grScreenOrigin);
 
     // Finally, blit the holiday layer
@@ -204,23 +203,35 @@ void grUpdateDisplay(struct TTtmThread *ttmBackgroundThread,
         if (ttmHolidayThread->isRunning)
             SDL_BlitSurface(ttmHolidayThread->ttmLayer,
                             NULL,
-                            SDL_GetWindowSurface(sdl_window),
+                            sdl_screen,
                             &grScreenOrigin);
 
     // Wait for the tick ...
     eventsWaitTick(grUpdateDelay);
 
     // ... and refresh the display
-    SDL_UpdateWindowSurface(sdl_window);
+    SDL_Flip(sdl_screen);
 }
 
 
 SDL_Surface *grNewLayer()
 {
-    SDL_Surface *sfc = SDL_CreateRGBSurface(SDL_SWSURFACE, 640, 480, 32, 0, 0, 0, 0);
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+    const Uint32 rmask = 0x0000ff00;
+    const Uint32 gmask = 0x00ff0000;
+    const Uint32 bmask = 0xff000000;
+    const Uint32 amask = 0x00000000;
+#else
+    const Uint32 rmask = 0x00ff0000;
+    const Uint32 gmask = 0x0000ff00;
+    const Uint32 bmask = 0x000000ff;
+    const Uint32 amask = 0x00000000;
+#endif
+
+    SDL_Surface *sfc = SDL_CreateRGBSurface(SDL_SWSURFACE, 640, 480, 32, rmask, gmask, bmask, amask);
     SDL_Rect dest = { 0, 0, 640, 480 };
     SDL_FillRect(sfc, &dest, SDL_MapRGB(sfc->format, 0xa8, 0, 0xa8));
-    SDL_SetColorKey(sfc, SDL_TRUE, SDL_MapRGB(sfc->format, 0xa8, 0, 0xa8));
+    SDL_SetColorKey(sfc, SDL_SRCCOLORKEY, SDL_MapRGB(sfc->format, 0xa8, 0, 0xa8));
 
     return sfc;
 }
@@ -534,8 +545,20 @@ void grLoadScreen(char *strArg)
         inPtr++;
     }
 
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+    const Uint32 rmask = 0x0000ff00;
+    const Uint32 gmask = 0x00ff0000;
+    const Uint32 bmask = 0xff000000;
+    const Uint32 amask = 0x00000000;
+#else
+    const Uint32 rmask = 0x00ff0000;
+    const Uint32 gmask = 0x0000ff00;
+    const Uint32 bmask = 0x000000ff;
+    const Uint32 amask = 0x00000000;
+#endif
+
     grBackgroundSfc = SDL_CreateRGBSurfaceFrom((void*)outData,
-                                      width, height, 32, 4*width, 0, 0, 0, 0);
+                                      width, height, 32, 4*width, rmask, gmask, bmask, amask);
 }
 
 
@@ -549,8 +572,21 @@ void grInitEmptyBackground()
 
     uint8 *data = safe_malloc(640 * 480 * sizeof(uint32));
     memset(data, 0, 640 * 480 * sizeof(uint32));
+
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+    const Uint32 rmask = 0x0000ff00;
+    const Uint32 gmask = 0x00ff0000;
+    const Uint32 bmask = 0xff000000;
+    const Uint32 amask = 0x00000000;
+#else
+    const Uint32 rmask = 0x00ff0000;
+    const Uint32 gmask = 0x0000ff00;
+    const Uint32 bmask = 0x000000ff;
+    const Uint32 amask = 0x00000000;
+#endif
+
     grBackgroundSfc = SDL_CreateRGBSurfaceFrom((void*)data,
-                                      640, 480, 32, 4*640, 0, 0, 0, 0);
+                                      640, 480, 32, 4*640, rmask, gmask, bmask, amask);
 }
 
 
@@ -593,9 +629,21 @@ void grLoadBmp(struct TTtmSlot *ttmSlot, uint16 slotNo, char *strArg)
             inPtr++;
         }
 
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+        const Uint32 rmask = 0x0000ff00;
+        const Uint32 gmask = 0x00ff0000;
+        const Uint32 bmask = 0xff000000;
+        const Uint32 amask = 0x00000000;
+#else
+        const Uint32 rmask = 0x00ff0000;
+        const Uint32 gmask = 0x0000ff00;
+        const Uint32 bmask = 0x000000ff;
+        const Uint32 amask = 0x00000000;
+#endif
+
         SDL_Surface *surface = SDL_CreateRGBSurfaceFrom((void*)outData,
-                                               width, height, 32, 4*width, 0, 0, 0, 0);
-        SDL_SetColorKey(surface, SDL_TRUE, SDL_MapRGB(surface->format, 0xa8, 0, 0xa8));
+                                               width, height, 32, 4*width, rmask, gmask, bmask, amask);
+        SDL_SetColorKey(surface, SDL_SRCCOLORKEY, SDL_MapRGB(surface->format, 0xa8, 0, 0xa8));
         ttmSlot->sprites[slotNo][image] = surface;
     }
 }
@@ -604,7 +652,7 @@ void grLoadBmp(struct TTtmSlot *ttmSlot, uint16 slotNo, char *strArg)
 void grFadeOut()
 {
     static int fadeOutType = 0;
-    SDL_Surface *sfc = SDL_GetWindowSurface(sdl_window);
+    SDL_Surface *sfc = sdl_screen;
     SDL_Surface *tmpSfc = grNewLayer();
 
 
@@ -621,7 +669,7 @@ void grFadeOut()
                     radius << 1, radius << 1, 5, 5);
                 SDL_BlitSurface(tmpSfc, NULL, sfc, &grScreenOrigin);
                 eventsWaitTick(1);
-                SDL_UpdateWindowSurface(sdl_window);
+                SDL_Flip(sdl_screen);
             }
             break;
 
@@ -630,7 +678,7 @@ void grFadeOut()
             for (int i=1; i <= 20; i++) {
                 grDrawRect(sfc, grScreenOrigin.x + 320 - i*16, grScreenOrigin.y + 240 - i*12, i*32, i*24, 5);
                 eventsWaitTick(1);
-                SDL_UpdateWindowSurface(sdl_window);
+                SDL_Flip(sdl_screen);
             }
             break;
 
@@ -639,7 +687,7 @@ void grFadeOut()
             for (int i=600; i >= 0; i -= 40) {
                 grDrawRect(sfc, grScreenOrigin.x + i, grScreenOrigin.y, 40, 480, 5);
                 eventsWaitTick(1);
-                SDL_UpdateWindowSurface(sdl_window);
+                SDL_Flip(sdl_screen);
             }
             break;
 
@@ -648,7 +696,7 @@ void grFadeOut()
             for (int i=0; i < 640; i += 40) {
                 grDrawRect(sfc, grScreenOrigin.x + i, grScreenOrigin.y, 40, 480, 5);
                 eventsWaitTick(1);
-                SDL_UpdateWindowSurface(sdl_window);
+                SDL_Flip(sdl_screen);
             }
             break;
 
@@ -658,7 +706,7 @@ void grFadeOut()
                 grDrawRect(sfc, grScreenOrigin.x + 320+i, grScreenOrigin.y, 20, 480, 5);
                 grDrawRect(sfc, grScreenOrigin.x + 300-i, grScreenOrigin.y, 20, 480, 5);
                 eventsWaitTick(1);
-                SDL_UpdateWindowSurface(sdl_window);
+                SDL_Flip(sdl_screen);
             }
             break;
     }

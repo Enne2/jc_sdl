@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include <SDL2/SDL.h>
+#include <SDL/SDL.h>
 #include "mytypes.h"
 #include "graphics.h"
 #include "events.h"
@@ -79,13 +79,10 @@ static void eventsProcessEvents()
                 else {
                     // Normal behaviour : no hot keys, the screen saver
                     // terminates if any key is pressed
+                    printf("Exiting due to KEYDOWN event. Key: %d\n", event.key.keysym.sym);
                     graphicsEnd();
                     exit(255);
                 }
-                break;
-
-            case SDL_WINDOWEVENT:
-                grRefreshDisplay();
                 break;
 
             case SDL_QUIT:
